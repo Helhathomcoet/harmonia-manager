@@ -6,20 +6,31 @@ import { Button, Drawer, Grid, Typography } from '@mui/material';
 import Xarrow from 'react-xarrows';
 import Modal from '@mui/material/Modal';
 import { Box, TextField } from '@mui/material';
-// import { DeleteIcon, EditIcon} from '@mui/icons-material/Delete';
-
-
-
+import { collection, addDoc, getDocs, updateDoc, doc } from "firebase/firestore";
+import { db } from "./Firebase";
 function Roadmap() {
     const [isCustomizeMode, setIsCustomizeMode] = useState(false);
     const [selectedNode, setSelectedNode] = useState(null);
     const [nodesData, setNodesData] = useState([
-        { id: 'node1', label: 'Harmonia', description: "Harmonia est un projet" },
     ]);
+
 
     const [renderArrows, setRenderArrows] = useState(false);
 
+    const fetchData = async () => {
+        const querySnapshot = await getDocs(collection(db, "roadmap"));
+        const nodes = [];
+        querySnapshot.forEach((doc) => {
+            nodes.push({ ...doc.data(), id: doc.id });
+        });
+        setNodesData(nodes);
+    };
+
     useEffect(() => {
+        
+
+        fetchData();
+
         const timer = setTimeout(() => {
             setRenderArrows(true);
         }, 300);
@@ -33,24 +44,15 @@ function Roadmap() {
     const [description, setDescription] = useState('');
 
 
-    // const handleDeleteNode = () => {
-
-    //     console.log('delete node');
-    // };
-
-    // const handleEditNode = () => {
-    //     setIsModalOpen(true);
-    // };
-
     const handleOpenModal = () => {
         setIsModalOpen(true);
     }
     const layout = nodesData.map((node, index) => ({
         i: node.id,
-        x: index * 2,
-        y: 0,
-        w: 2,
-        h: 2,
+        x: node.gridItem.x,
+        y: node.gridItem.y,
+        w: node.gridItem.w,
+        h: node.gridItem.h,
     }));
 
     const toggleCustomizeMode = () => {
@@ -64,22 +66,63 @@ function Roadmap() {
         }
     };
 
-    const handleAddNode = () => {
-        const newNode = {
-            id: `node${nodesData.length + 1}`,
-            label: title,
-            description: description,
-        };
+    const handleLayoutChange = async (newLayout) => {
+        const updatedNodesData = nodesData.map(node => {
+            const layoutItem = newLayout.find(item => item.i === node.id);
+            if (layoutItem) {
+                return {
+                    ...node,
+                    gridItem: {
+                        ...node.gridItem,
+                        x: layoutItem.x,
+                        y: layoutItem.y,
+                        w: layoutItem.w,
+                        h: layoutItem.h,
+                    },
+                };
+            }
+            return node;
+        });
 
-        setNodesData([...nodesData, newNode]);
+        setNodesData(updatedNodesData);
 
-        setTitle('');
-        setDescription('');
-
-        setIsModalOpen(false);
+        // Mise à jour de Firebase pour chaque nœud modifié
+        for (const node of updatedNodesData) {
+            await updateDoc(doc(db, "roadmap", node.id), {
+                ...node,
+                "gridItem": node.gridItem,
+            });
+        }
     };
 
+    const handleAddNode = async () => {
+        const newNode = {
+            label: title,
+            description: description,
+            gridItem: {
+                x: 0,
+                y: 0,
+                w: 2,
+                h: 2,
+            },
+        };
 
+        try {
+            const docRef = await addDoc(collection(db, "roadmap"), newNode);
+            console.log("Document written with ID: ", docRef.id);
+
+            // Ajoutez l'ID du document au nœud pour le référencer localement
+            const addedNode = { ...newNode, id: docRef.id };
+            setNodesData([...nodesData, addedNode]);
+
+            setTitle('');
+            setDescription('');
+
+            setIsModalOpen(false);
+        } catch (e) {
+            console.error("Error adding document: ", e);
+        }
+    };
 
     const modalStyle = {
         position: 'absolute',
@@ -122,6 +165,9 @@ function Roadmap() {
                 isDraggable={isCustomizeMode}
                 isResizable={isCustomizeMode}
                 compactType={null}
+                onLayoutChange={(newLayout) => {
+                    handleLayoutChange(newLayout);
+                }}
             >
                 {nodesData.map(node => (
                     <div key={node.id} id={node.id} style={{
@@ -136,16 +182,6 @@ function Roadmap() {
 
                         onClick={() => handleSelectNode(node.id)}>
                         {node.label}
-                        {/* {isCustomizeMode && (
-                            <>
-                                <IconButton onClick={() => handleEditNode} aria-label="edit">
-                                    <EditIcon />
-                                </IconButton>
-                                <IconButton onClick={() => handleDeleteNode} aria-label="delete">
-                                    <DeleteIcon />
-                                </IconButton>
-                            </>
-                        )} */}
                     </div>
                 ))}
             </GridLayout>
@@ -213,9 +249,6 @@ function Roadmap() {
                     </Box>
                 </Box>
             </Modal>
-
-
-
         </div>
     );
 }
